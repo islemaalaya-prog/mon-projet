@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -6,51 +5,61 @@ pipeline {
         timestamps()
     }
 
+    environment {
+        IMAGE = 'islemaalaya/monapp'
+        TAG = "build-${env.BUILD_NUMBER}"
+    }
+
     stages {
-
-        stage('Cloner le dépôt') {
+        stage('Checkout') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/islemaalaya-prog/mon-projet.git'
+                checkout scm
             }
         }
 
-        stage('Étape 1 : Vérification du dépôt') {
+        stage('Docker Build') {
             steps {
-                bat 'echo === Étape 1 : Vérification du dépôt ==='
-                bat 'git status'
+                bat 'docker version'
+                bat "docker build -t %IMAGE%:%TAG% ."
             }
         }
 
-        stage('Étape 2 : Afficher le contenu du projet') {
+        stage('Smoke Test') {
             steps {
-                bat 'echo === Étape 2 : Afficher le contenu du projet ==='
-                bat 'dir'
+                bat """
+                    docker rm -f monapp_test 2>nul || ver > nul
+                    docker run -d --name monapp_test -p 8083:80 %IMAGE%:%TAG%
+                    ping -n 3 127.0.0.1 > nul
+                    curl -I http://localhost:8083 | find "200 OK"
+                    docker rm -f monapp_test
+                """
             }
         }
 
-        stage('Étape 3 : Simuler un déploiement local') {
+        stage('Push (Docker Hub)') {
             steps {
-                bat 'echo === Étape 3 : Simuler un déploiement local ==='
-                bat 'echo Le fichier index.html est prêt à être affiché'
-            }
-        }
-
-        stage('Étape 4 : Fin du build') {
-            steps {
-                bat 'echo === Étape 4 : Fin du build ==='
-                bat 'echo SUCCESS'
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    bat """
+                        echo %PASS% | docker login -u %USER% --password-stdin
+                        docker tag %IMAGE%:%TAG% %IMAGE%:latest
+                        docker push %IMAGE%:%TAG%
+                        docker push %IMAGE%:latest
+                    """
+                }
             }
         }
     }
 
     post {
         success {
-            echo 'Build OK'
+            echo 'Build+Test+Push OK'
         }
-
         failure {
-            echo 'Build KO'
+            echo 'Build/Tests/Push KO'
         }
     }
 }
