@@ -1,4 +1,4 @@
-pipeline {
+
     agent any
 
     options {
@@ -24,7 +24,6 @@ pipeline {
             }
         }
 
-        stage('Smoke Test') {
             steps {
                 bat """
                     docker rm -f monapp_test 2>nul || ver > nul
